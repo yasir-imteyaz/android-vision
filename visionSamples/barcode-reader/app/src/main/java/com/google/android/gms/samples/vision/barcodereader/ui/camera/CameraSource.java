@@ -133,8 +133,8 @@ public class CameraSource {
     // These values may be requested by the caller.  Due to hardware limitations, we may need to
     // select close, but not exactly the same values for these.
     private float mRequestedFps = 30.0f;
-    private int mRequestedPreviewWidth = 1024;
-    private int mRequestedPreviewHeight = 768;
+    private int mRequestedPreviewWidth = 1920;
+    private int mRequestedPreviewHeight = 1480;
 
 
     private String mFocusMode = null;
@@ -479,7 +479,15 @@ public class CameraSource {
             }
             parameters.setZoom(currentZoom);
             mCamera.setParameters(parameters);
+
             return currentZoom;
+        }
+    }
+
+    private void getSupportedSize(Camera.Parameters params) {
+        List<android.hardware.Camera.Size> supportedSizes = params.getSupportedPictureSizes();
+        for ( android.hardware.Camera.Size size : supportedSizes){
+            Log.d("CameraSize", "width:" + size.width + " | height:" + size.height);
         }
     }
 
@@ -746,6 +754,9 @@ public class CameraSource {
         }
         Camera camera = Camera.open(requestedCameraId);
 
+        getSupportedSize(camera.getParameters());
+
+
         SizePair sizePair = selectSizePair(camera, mRequestedPreviewWidth, mRequestedPreviewHeight);
         if (sizePair == null) {
             throw new RuntimeException("Could not find suitable preview size.");
@@ -764,7 +775,12 @@ public class CameraSource {
             parameters.setPictureSize(pictureSize.getWidth(), pictureSize.getHeight());
         }
 
+        // TODO: Review later
+        parameters.setPictureSize(1920, 1080);
+
+
         parameters.setPreviewSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
+
         parameters.setPreviewFpsRange(
                 previewFpsRange[Camera.Parameters.PREVIEW_FPS_MIN_INDEX],
                 previewFpsRange[Camera.Parameters.PREVIEW_FPS_MAX_INDEX]);

@@ -25,10 +25,15 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.hardware.Camera;
+import android.media.ExifInterface;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.support.annotation.NonNull;
+import android.support.annotation.RequiresApi;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
@@ -91,7 +96,7 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
         mGraphicOverlay = (GraphicOverlay<BarcodeGraphic>) findViewById(R.id.graphicOverlay);
 
         // read parameters from the intent used to launch the activity.
-        boolean autoFocus = getIntent().getBooleanExtra(AutoFocus, false);
+        boolean autoFocus = getIntent().getBooleanExtra(AutoFocus, true);
         boolean useFlash = getIntent().getBooleanExtra(UseFlash, false);
 
         // Check for the camera permission before accessing the camera.  If the
@@ -202,7 +207,7 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
         // at long distances.
         CameraSource.Builder builder = new CameraSource.Builder(getApplicationContext(), barcodeDetector)
                 .setFacing(CameraSource.CAMERA_FACING_BACK)
-                .setRequestedPreviewSize(1600, 1024)
+                .setRequestedPreviewSize(1280, 960)
                 .setRequestedFps(15.0f);
 
         // make sure that auto focus is an available option
@@ -365,8 +370,62 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
             finish();
             return true;
         }
+
         return false;
     }
+
+    private void takePicture(final String barcodeValue) {
+        Log.d("IMAGE","taking picture");
+        // take picture
+
+        mCameraSource.takePicture(null, new CameraSource.PictureCallback() {
+            @Override
+            public void onPictureTaken(byte[] bytes) {
+                Log.d("PERM", "isExternalStorageWritable :" + isPermissionsGranted(Manifest.permission.WRITE_EXTERNAL_STORAGE));
+                Log.d("PERM", "isExternalStorageReadable :" + isPermissionsGranted(Manifest.permission.READ_EXTERNAL_STORAGE));
+                Log.d("PERM", "isCameraPermission :" + isPermissionsGranted(Manifest.permission.CAMERA));
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes , 0, bytes .length);
+                Log.d("IMAGEProp", "width: " +bitmap.getWidth()+ ", height:" + bitmap.getHeight());
+
+                String filePath =  Utilities.capturePic(barcodeValue, bytes);
+
+                try {
+                    String imageDescription = "{\"test_type\" : " + barcodeValue + "}";
+                    ExifInterface exif = new ExifInterface(filePath);
+                    exif.setAttribute("ImageDescription", imageDescription);
+                    exif.saveAttributes();
+                } catch (IOException e) {
+                    // handle the error
+                }
+
+                // Upload to server
+                try {
+                    Utilities.execMultipartPost(filePath);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+    }
+
+    public  boolean isPermissionsGranted(String permission) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(permission)
+                    == PackageManager.PERMISSION_GRANTED) {
+                Log.v(TAG, "Permission is granted");
+                return true;
+            } else {
+
+                Log.v(TAG, "Permission is revoked");
+                ActivityCompat.requestPermissions(this, new String[]{permission}, 1);
+                return false;
+            }
+        } else { //permission is automatically granted on sdk<23 upon installation
+            Log.v(TAG, "Permission " + permission + " is granted");
+            return true;
+        }
+    }
+
 
     private class CaptureGestureListener extends GestureDetector.SimpleOnGestureListener {
         @Override
@@ -432,5 +491,7 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
     @Override
     public void onBarcodeDetected(Barcode barcode) {
         //do something with barcode data returned
+        Log.d("BARCODE", "Captured barcode" + barcode.displayValue);
+        takePicture(barcode.displayValue);
     }
 }
