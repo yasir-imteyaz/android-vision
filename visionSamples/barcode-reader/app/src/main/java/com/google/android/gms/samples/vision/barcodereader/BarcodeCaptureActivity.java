@@ -27,13 +27,13 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Rect;
 import android.hardware.Camera;
 import android.media.ExifInterface;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
+import android.os.StrictMode;
 import android.support.annotation.NonNull;
-import android.support.annotation.RequiresApi;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
@@ -46,10 +46,8 @@ import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
-import com.google.android.gms.common.api.CommonStatusCodes;
 import com.google.android.gms.samples.vision.barcodereader.ui.camera.CameraSource;
 import com.google.android.gms.samples.vision.barcodereader.ui.camera.CameraSourcePreview;
-
 import com.google.android.gms.samples.vision.barcodereader.ui.camera.GraphicOverlay;
 import com.google.android.gms.vision.MultiProcessor;
 import com.google.android.gms.vision.barcode.Barcode;
@@ -89,6 +87,8 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
      */
     @Override
     public void onCreate(Bundle icicle) {
+        StrictMode.VmPolicy.Builder builder = new StrictMode.VmPolicy.Builder();
+        StrictMode.setVmPolicy(builder.build());
         super.onCreate(icicle);
         setContentView(R.layout.barcode_capture);
 
@@ -162,7 +162,7 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
      * Creates and starts the camera.  Note that this uses a higher resolution in comparison
      * to other detection examples to enable the barcode detector to detect small barcodes
      * at long distances.
-     *
+     * <p>
      * Suppressing InlinedApi since there is a check that the minimum version is met before using
      * the constant.
      */
@@ -282,7 +282,7 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
         if (grantResults.length != 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             Log.d(TAG, "Camera permission granted - initialize the camera source");
             // we have permission, so create the camerasource
-            boolean autoFocus = getIntent().getBooleanExtra(AutoFocus,false);
+            boolean autoFocus = getIntent().getBooleanExtra(AutoFocus, false);
             boolean useFlash = getIntent().getBooleanExtra(UseFlash, false);
             createCameraSource(autoFocus, useFlash);
             return;
@@ -347,6 +347,7 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
         // Find the barcode whose center is closest to the tapped point.
         Barcode best = null;
         float bestDistance = Float.MAX_VALUE;
+
         for (BarcodeGraphic graphic : mGraphicOverlay.getGraphics()) {
             Barcode barcode = graphic.getBarcode();
             if (barcode.getBoundingBox().contains((int) x, (int) y)) {
@@ -364,32 +365,37 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
         }
 
         if (best != null) {
-            Intent data = new Intent();
-            data.putExtra(BarcodeObject, best);
-            setResult(CommonStatusCodes.SUCCESS, data);
-            finish();
-            return true;
+            captureImage(best.displayValue, best.getBoundingBox());
         }
 
         return false;
     }
 
-    private void takePicture(final String barcodeValue) {
-        Log.d("IMAGE","taking picture");
+    /**
+     * capture an image of the current view in camera
+     * @param barcodeValue
+     * @param rect
+     */
+    private void captureImage(final String barcodeValue, final Rect rect) {
+        Log.d("IMAGE", "taking picture");
         // take picture
-
         mCameraSource.takePicture(null, new CameraSource.PictureCallback() {
             @Override
             public void onPictureTaken(byte[] bytes) {
                 Log.d("PERM", "isExternalStorageWritable :" + isPermissionsGranted(Manifest.permission.WRITE_EXTERNAL_STORAGE));
                 Log.d("PERM", "isExternalStorageReadable :" + isPermissionsGranted(Manifest.permission.READ_EXTERNAL_STORAGE));
                 Log.d("PERM", "isCameraPermission :" + isPermissionsGranted(Manifest.permission.CAMERA));
-                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes , 0, bytes .length);
-                Log.d("IMAGEProp", "width: " +bitmap.getWidth()+ ", height:" + bitmap.getHeight());
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                Log.d("IMAGEProp", "width: " + bitmap.getWidth() + ", height:" + bitmap.getHeight());
 
-                String filePath =  Utilities.capturePic(barcodeValue, bytes);
+
+                bitmap = Utilities.rotateImage(bitmap, 270);
+
+                bitmap = Utilities.detectBarcode(bitmap, getApplicationContext());
+                String filePath = Utilities.savePicture(barcodeValue, Utilities.bitmapToBytes(bitmap));
 
                 try {
+                    // Add barcode value as exif metadata in the image.
                     String imageDescription = "{\"test_type\" : " + barcodeValue + "}";
                     ExifInterface exif = new ExifInterface(filePath);
                     exif.setAttribute("ImageDescription", imageDescription);
@@ -400,7 +406,7 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
 
                 // Upload to server
                 try {
-                    Utilities.execMultipartPost(filePath);
+                    Utilities.uploadToServer(filePath);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -408,7 +414,13 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
         });
     }
 
-    public  boolean isPermissionsGranted(String permission) {
+
+    /**
+     * Checks if required permission is granted. If not, request permission from user.
+     * @param permission - permission to check
+     * @return
+     */
+    private boolean isPermissionsGranted(String permission) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (checkSelfPermission(permission)
                     == PackageManager.PERMISSION_GRANTED) {
@@ -488,10 +500,19 @@ public final class BarcodeCaptureActivity extends AppCompatActivity implements B
         }
     }
 
+
+    /**
+     * Some actions when barcode is detected.
+     * @param barcode
+     */
     @Override
     public void onBarcodeDetected(Barcode barcode) {
         //do something with barcode data returned
-        Log.d("BARCODE", "Captured barcode" + barcode.displayValue);
-        takePicture(barcode.displayValue);
+        Log.d("BARCODE", "Captured barcode: " + barcode.displayValue + ", bounds :  " + barcode.getBoundingBox());
+
+        if (Utilities.isValidAspectRatio(barcode)) {
+            //captureImage(barcode.displayValue, barcode.getBoundingBox());
+        }
     }
+
 }
