@@ -1,3 +1,16 @@
+Note for Impactathon 
+====================
+This project is forked from https://github.com/googlesamples/android-vision and modified to scan a barcode image and upload it to server.
+The upload server url can be found at - visionSamples/barcode-`reader/app/src/main/java/com/google/android/gms/samples/vision/barcodereader/Utilities.java`
+
+Functionality
+------------
+1. Run the `visionSamples/barcode-reader` app and point the camera to barcode.
+2. Once the barcode is detected, tap on the camera. It should upload the image to hardcoded API server.
+
+
+Below instructions are carries from forked source:
+- - -
 Android Vision API Samples
 ============
 
